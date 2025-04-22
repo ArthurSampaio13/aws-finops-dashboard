@@ -12,6 +12,8 @@ from rich.console import Console
 from aws_finops_dashboard.aws_client import get_account_id
 from aws_finops_dashboard.types import BudgetInfo, CostData, EC2Summary, ProfileData
 
+from collections import defaultdict
+
 console = Console()
 
 
@@ -177,6 +179,160 @@ def process_service_costs(
 
     return service_costs, service_cost_data
 
+def categorize_aws_services(service_costs: List[Tuple[str, float]]) -> dict[str, float]:
+    """
+    Categorize AWS services into groups like compute, storage, networking, etc.
+    
+    Args:
+        service_costs: List of tuples containing (service_name, cost)
+        
+    Returns:
+        Dictionary mapping categories to their total costs
+    """
+    # Define service to category mapping
+    service_categories = {
+        # Compute
+        "Amazon Elastic Compute Cloud": "Compute",
+        "EC2 - Other": "Compute",
+        "Amazon Elastic Container Service": "Compute",
+        "Amazon EKS": "Compute",
+        "AWS Lambda": "Compute",
+        "Amazon Elastic Container Registry": "Compute",
+        "AWS Fargate": "Compute",
+        "Amazon Lightsail": "Compute",
+        "EC2 Container Registry": "Compute",
+        "Amazon Elastic Kubernetes Service": "Compute",
+        "Amazon EC2 Container Service": "Compute",
+        
+        # Storage
+        "Amazon Simple Storage Service": "Storage",
+        "Amazon Elastic Block Store": "Storage",
+        "Amazon Elastic File System": "Storage",
+        "Amazon FSx": "Storage",
+        "Amazon S3 Glacier": "Storage",
+        "Storage Gateway": "Storage",
+        "AWS Backup": "Storage",
+        
+        # Database
+        "Amazon Relational Database Service": "Database",
+        "Amazon DynamoDB": "Database",
+        "Amazon ElastiCache": "Database",
+        "Amazon Redshift": "Database",
+        "Amazon Neptune": "Database",
+        "Amazon DocumentDB": "Database",
+        "Amazon Timestream": "Database",
+        "Amazon Quantum Ledger Database": "Database",
+        "Amazon Keyspaces": "Database",
+        "Amazon Aurora": "Database",
+        
+        # Networking & Content Delivery
+        "Amazon Virtual Private Cloud": "Networking",
+        "Amazon CloudFront": "Networking",
+        "Amazon Route 53": "Networking",
+        "Elastic Load Balancing": "Networking",
+        "AWS Direct Connect": "Networking",
+        "Amazon API Gateway": "Networking",
+        "Amazon VPC": "Networking",
+        "AWS Global Accelerator": "Networking",
+        "AWS Transit Gateway": "Networking",
+        
+        # Analytics
+        "Amazon Athena": "Analytics",
+        "Amazon EMR": "Analytics",
+        "Amazon Kinesis": "Analytics",
+        "Amazon Managed Streaming for Apache Kafka": "Analytics",
+        "Amazon OpenSearch Service": "Analytics",
+        "Amazon QuickSight": "Analytics",
+        "AWS Glue": "Analytics",
+        "Amazon Elasticsearch Service": "Analytics",
+        "Amazon Data Firehose": "Analytics",
+        
+        # Machine Learning
+        "Amazon SageMaker": "Machine Learning",
+        "Amazon Comprehend": "Machine Learning",
+        "Amazon Rekognition": "Machine Learning",
+        "Amazon Polly": "Machine Learning",
+        "Amazon Translate": "Machine Learning",
+        "Amazon Lex": "Machine Learning",
+        "Amazon Forecast": "Machine Learning",
+        "Amazon Textract": "Machine Learning",
+        
+        # Security & Identity
+        "AWS Key Management Service": "Security",
+        "AWS WAF": "Security",
+        "Amazon GuardDuty": "Security",
+        "AWS Shield": "Security",
+        "AWS Certificate Manager": "Security",
+        "AWS Secrets Manager": "Security",
+        "AWS Identity and Access Management": "Security",
+        "AWS IAM": "Security",
+        "Amazon Inspector": "Security",
+        "AWS Directory Service": "Security",
+        
+        # Management & Governance
+        "AWS CloudTrail": "Management",
+        "Amazon CloudWatch": "Management",
+        "AWS Config": "Management",
+        "AWS Systems Manager": "Management",
+        "AWS CloudFormation": "Management",
+        "AWS Organizations": "Management",
+        "AWS Control Tower": "Management",
+        "AWS Trusted Advisor": "Management",
+        "AWS Cost Explorer": "Management",
+        
+        # Developer Tools
+        "AWS CodeBuild": "Developer Tools",
+        "AWS CodeCommit": "Developer Tools",
+        "AWS CodeDeploy": "Developer Tools",
+        "AWS CodePipeline": "Developer Tools",
+        "AWS CodeStar": "Developer Tools",
+        "AWS X-Ray": "Developer Tools",
+        
+        # Application Integration
+        "Amazon Simple Queue Service": "Integration",
+        "Amazon Simple Notification Service": "Integration",
+        "Amazon MQ": "Integration",
+        "AWS Step Functions": "Integration",
+        "Amazon AppFlow": "Integration",
+        "Amazon EventBridge": "Integration",
+        
+        # Customer Engagement
+        "Amazon Connect": "Customer Engagement",
+        "Amazon Pinpoint": "Customer Engagement",
+        "Amazon Simple Email Service": "Customer Engagement",
+        
+        # Support & Billing
+        "AWS Support": "Support & Billing",
+        "AWS Billing": "Support & Billing",
+        "Tax": "Support & Billing"
+    }
+    
+    # Initialize category totals
+    category_totals = defaultdict(float)
+    
+    # Process each service cost
+    for service_name, cost in service_costs:
+        # Try to find an exact match
+        category = service_categories.get(service_name, None)
+        
+        # If no exact match, try partial match
+        if category is None:
+            matched = False
+            for known_service, cat in service_categories.items():
+                if known_service.lower() in service_name.lower() or service_name.lower() in known_service.lower():
+                    category = cat
+                    matched = True
+                    break
+            
+            # If still no match, categorize as Other
+            if not matched:
+                category = "Other"
+        
+        # Add cost to appropriate category
+        category_totals[category] += cost
+    
+    return category_totals
+
 
 def format_budget_info(budgets: List[BudgetInfo]) -> List[str]:
     """Format budget information for display."""
@@ -232,8 +388,8 @@ def export_to_csv(
                 "AWS Account ID",
                 previous_period_header,
                 current_period_header,
-                "Current Month Cost",
                 "Cost By Service",
+                "Cost By Category",  # Nova coluna
                 "Budget Status",
                 "EC2 Instances",
             ]
@@ -245,6 +401,14 @@ def export_to_csv(
                     [
                         f"{service}: ${cost:.2f}"
                         for service, cost in row["service_costs"]
+                    ]
+                )
+                
+                category_costs = categorize_aws_services(row["service_costs"])
+                categories_data = "\n".join(
+                    [
+                        f"{category}: ${cost:.2f}"
+                        for category, cost in sorted(category_costs.items(), key=lambda x: x[1], reverse=True)
                     ]
                 )
 
@@ -269,6 +433,7 @@ def export_to_csv(
                         previous_period_header: f"${row['last_month']:.2f}",
                         current_period_header: f"${row['current_month']:.2f}",
                         "Cost By Service": services_data or "No costs",
+                        "Cost By Category": categories_data or "No costs",  # Nova coluna
                         "Budget Status": budgets_data or "No budgets",
                         "EC2 Instances": ec2_data_summary or "No instances",
                     }

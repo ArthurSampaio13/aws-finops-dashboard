@@ -23,6 +23,7 @@ from aws_finops_dashboard.cost_processor import (
     format_ec2_summary,
     get_cost_data,
     process_service_costs,
+    categorize_aws_services,
 )
 from aws_finops_dashboard.types import BudgetInfo, ProfileData
 
@@ -181,6 +182,7 @@ def create_display_table(
         Column(f"{previous_period_name}\n({previous_period_dates})", justify="center"),
         Column(f"{current_period_name}\n({current_period_dates})", justify="center"),
         Column("Cost By Service"),
+        Column("Cost By Category"),  
         Column("Budget Status"),
         Column("EC2 Instance Summary", justify="center"),
         title="AWS FinOps Dashboard",
@@ -194,12 +196,20 @@ def create_display_table(
 def add_profile_to_table(table: Table, profile_data: ProfileData) -> None:
     """Add profile data to the display table."""
     if profile_data["success"]:
+    
+        category_costs = categorize_aws_services(profile_data["service_costs"])
+        category_formatted = [f"{category}: ${cost:.2f}" for category, cost in 
+                             sorted(category_costs.items(), key=lambda x: x[1], reverse=True)]
+        
         table.add_row(
             f"[bright_magenta]{profile_data['profile']}\nAccount: {profile_data['account_id']}[/]",
             f"[bright_red]${profile_data['last_month']:.2f}[/]",
             f"[bright_green]${profile_data['current_month']:.2f}[/]",
             "[bright_green]"
             + "\n".join(profile_data["service_costs_formatted"])
+            + "[/]",
+            "[bright_cyan]"  
+            + "\n".join(category_formatted)
             + "[/]",
             "[bright_yellow]" + "\n".join(profile_data["budget_info"]) + "[/]",
             "\n".join(profile_data["ec2_summary_formatted"]),
@@ -210,10 +220,10 @@ def add_profile_to_table(table: Table, profile_data: ProfileData) -> None:
             "[red]Error[/]",
             "[red]Error[/]",
             f"[red]Failed to process profile: {profile_data['error']}[/]",
+            "[red]N/A[/]",  
             "[red]N/A[/]",
             "[red]N/A[/]",
         )
-
 
 def run_dashboard(args: argparse.Namespace) -> int:
     """Main function to run the AWS FinOps dashboard."""
